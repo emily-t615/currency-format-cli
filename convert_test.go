@@ -80,3 +80,25 @@ func TestExponentForUnknownCurrency(t *testing.T) {
 		t.Error("expected error for unknown currency code, got nil")
 	}
 }
+
+func TestExponentForKnownCurrencies(t *testing.T) {
+	cases := []struct {
+		code string
+		want int
+	}{
+		{"usd", 2}, // lowercase input should still resolve
+		{"CLP", 0}, // zero-decimal
+		{"IQD", 3}, // three-decimal, added alongside the Gulf dinars
+		{"CLF", 4}, // four-decimal
+	}
+	for _, c := range cases {
+		got, err := exponentFor(c.code)
+		if err != nil {
+			t.Errorf("exponentFor(%q) unexpected error: %v", c.code, err)
+			continue
+		}
+		if got != c.want {
+			t.Errorf("exponentFor(%q) = %d, want %d", c.code, got, c.want)
+		}
+	}
+}

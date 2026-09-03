@@ -82,5 +82,7 @@ Standard library only, no external dependencies.
 
 ## Status
 
-Early skeleton. The currency table only covers currencies I've personally
-needed so far; unknown codes return an error rather than guessing.
+Early skeleton. The currency table covers the active ISO 4217 circulating
+currencies (see `currencyExponents` in `convert.go`); unknown codes return
+an error rather than guessing. It does not include the non-country "funds
+code" entries (BOV, USN, and similar) or the precious-metal/SDR codes.
