@@ -60,14 +60,36 @@ $ go run . -amount 1234.56 -currency USD -from major --json
 }
 ```
 
+### Batch mode
+
+Pass `-batch` to convert many amounts in one run instead of passing
+`-amount`. Amounts are read from stdin, one per line, and all converted with
+the same `-currency` and `-from`. Blank lines and lines starting with `#`
+are skipped:
+
+```
+$ printf '1234.56\n0.07\n# a comment\n999999.99\n' | go run . -batch -currency USD -from major
+1234.56 USD (major) -> 123456 (minor)
+0.07 USD (major) -> 7 (minor)
+999999.99 USD (major) -> 99999999 (minor)
+```
+
+A bad line is reported to stderr with its line number and skipped rather
+than aborting the whole batch; the process exits non-zero if any line
+failed. With `--json`, batch mode emits one compact JSON object per line
+(newline-delimited JSON) instead of an indented single object.
+
 ## Flags
 
-- `-amount` the value to convert
+- `-amount` the value to convert (ignored, and must be omitted, when
+  `-batch` is set)
 - `-currency` an ISO 4217 currency code (see `currencyExponents` in
   `convert.go` for the currently supported list)
-- `-from` which format `-amount` is in: `major` or `minor` (the tool always
+- `-from` which format the amount is in: `major` or `minor` (the tool always
   converts to the other one)
-- `--json` emit the JSON object shown above instead of a one-line summary
+- `-batch` read amounts from stdin, one per line, instead of using `-amount`
+- `--json` emit JSON instead of a human-readable line (indented for a single
+  amount, newline-delimited for `-batch`)
 
 An amount with more fractional digits than the currency allows (e.g.
 `1.234` for USD) is rejected rather than silently rounded.
