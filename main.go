@@ -16,6 +16,7 @@ type result struct {
 	Output       string `json:"output"`
 	OutputFormat string `json:"output_format"`
 	Exponent     int    `json:"exponent"`
+	Rounded      bool   `json:"rounded,omitempty"`
 }
 
 func main() {
@@ -24,15 +25,20 @@ func main() {
 	from := flag.String("from", "", "format of -amount: \"major\" or \"minor\"")
 	jsonOut := flag.Bool("json", false, "emit JSON instead of a human-readable line")
 	batch := flag.Bool("batch", false, "read amounts from stdin, one per line, instead of -amount")
+	round := flag.String("round", string(RoundError), "how to handle amounts with too many fractional digits: error, down, up, or half-up")
 	flag.Parse()
 
 	if *currency == "" || *from == "" || (*from != "major" && *from != "minor") {
-		fmt.Fprintln(os.Stderr, "usage: currencyfmt -amount <value> -currency <code> -from <major|minor> [--json]")
-		fmt.Fprintln(os.Stderr, "       currencyfmt -batch -currency <code> -from <major|minor> [--json] < amounts.txt")
+		fmt.Fprintln(os.Stderr, "usage: currencyfmt -amount <value> -currency <code> -from <major|minor> [--json] [-round <mode>]")
+		fmt.Fprintln(os.Stderr, "       currencyfmt -batch -currency <code> -from <major|minor> [--json] [-round <mode>] < amounts.txt")
 		os.Exit(2)
 	}
 
 	exp, err := exponentFor(*currency)
+	if err != nil {
+		fail(err)
+	}
+	mode, err := parseRoundMode(*round)
 	if err != nil {
 		fail(err)
 	}
@@ -41,16 +47,16 @@ func main() {
 		if *amount != "" {
 			fail(fmt.Errorf("-amount cannot be combined with -batch; amounts are read from stdin"))
 		}
-		runBatch(*currency, *from, exp, *jsonOut)
+		runBatch(*currency, *from, exp, mode, *jsonOut)
 		return
 	}
 
 	if *amount == "" {
-		fmt.Fprintln(os.Stderr, "usage: currencyfmt -amount <value> -currency <code> -from <major|minor> [--json]")
+		fmt.Fprintln(os.Stderr, "usage: currencyfmt -amount <value> -currency <code> -from <major|minor> [--json] [-round <mode>]")
 		os.Exit(2)
 	}
 
-	res, err := convertOne(*amount, *currency, *from, exp)
+	res, err := convertOne(*amount, *currency, *from, exp, mode)
 	if err != nil {
 		fail(err)
 	}
@@ -63,7 +69,7 @@ func main() {
 // starting with # are skipped. A bad line is reported and skipped rather
 // than aborting the rest of the batch, and the process exits non-zero if
 // any line failed.
-func runBatch(currency, from string, exp int, jsonOut bool) {
+func runBatch(currency, from string, exp int, mode RoundMode, jsonOut bool) {
 	scanner := bufio.NewScanner(os.Stdin)
 	lineNum := 0
 	hadError := false
@@ -75,7 +81,7 @@ func runBatch(currency, from string, exp int, jsonOut bool) {
 			continue
 		}
 
-		res, err := convertOne(line, currency, from, exp)
+		res, err := convertOne(line, currency, from, exp, mode)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "line %d: error: %v\n", lineNum, err)
 			hadError = true
@@ -93,7 +99,7 @@ func runBatch(currency, from string, exp int, jsonOut bool) {
 
 // convertOne runs a single amount through the major/minor conversion and
 // builds the result struct shared by both single-amount and batch modes.
-func convertOne(amount, currency, from string, exp int) (result, error) {
+func convertOne(amount, currency, from string, exp int, mode RoundMode) (result, error) {
 	res := result{
 		Currency: strings.ToUpper(currency),
 		Input:    amount,
@@ -102,13 +108,14 @@ func convertOne(amount, currency, from string, exp int) (result, error) {
 
 	switch from {
 	case "major":
-		minor, err := majorToMinor(amount, exp)
+		minor, rounded, err := majorToMinor(amount, exp, mode)
 		if err != nil {
 			return result{}, err
 		}
 		res.InputFormat = "major"
 		res.OutputFormat = "minor"
 		res.Output = fmt.Sprintf("%d", minor)
+		res.Rounded = rounded
 	case "minor":
 		minor, err := parseMinor(amount)
 		if err != nil {
@@ -137,7 +144,11 @@ func printResult(res result, jsonOut, indent bool) {
 		}
 		return
 	}
-	fmt.Printf("%s %s (%s) -> %s (%s)\n", res.Input, res.Currency, res.InputFormat, res.Output, res.OutputFormat)
+	suffix := ""
+	if res.Rounded {
+		suffix = " (rounded)"
+	}
+	fmt.Printf("%s %s (%s) -> %s (%s)%s\n", res.Input, res.Currency, res.InputFormat, res.Output, res.OutputFormat, suffix)
 }
 
 func fail(err error) {

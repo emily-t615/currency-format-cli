@@ -77,11 +77,49 @@ func splitSign(s string) (negative bool, rest string) {
 	}
 }
 
+// RoundMode controls what majorToMinor does when an amount carries more
+// fractional digits than the currency's exponent allows.
+type RoundMode string
+
+const (
+	// RoundError rejects the amount instead of dropping precision. This is
+	// the default: silent rounding is how off-by-a-cent bugs get into
+	// ledgers, so a caller has to ask for it explicitly.
+	RoundError RoundMode = "error"
+	// RoundDown truncates the extra digits (round toward zero).
+	RoundDown RoundMode = "down"
+	// RoundUp rounds away from zero whenever any extra digit is non-zero.
+	RoundUp RoundMode = "up"
+	// RoundHalfUp rounds to the nearest minor unit, ties away from zero,
+	// which is the rounding convention most payment processors use.
+	RoundHalfUp RoundMode = "half-up"
+)
+
+// parseRoundMode validates a -round flag value.
+func parseRoundMode(s string) (RoundMode, error) {
+	switch RoundMode(s) {
+	case RoundError, RoundDown, RoundUp, RoundHalfUp:
+		return RoundMode(s), nil
+	default:
+		return "", fmt.Errorf("invalid rounding mode %q (want %q, %q, %q, or %q)", s, RoundError, RoundDown, RoundUp, RoundHalfUp)
+	}
+}
+
+func isAllZero(s string) bool {
+	for _, r := range s {
+		if r != '0' {
+			return false
+		}
+	}
+	return true
+}
+
 // majorToMinor converts a decimal amount like "1234.56" into the integer
-// number of minor units, e.g. 123456 for a currency with exponent 2.
-// It refuses to round: an amount with more fractional digits than the
-// currency allows is an error rather than a silently truncated value.
-func majorToMinor(amount string, exponent int) (int64, error) {
+// number of minor units, e.g. 123456 for a currency with exponent 2. When
+// the amount has more fractional digits than the currency allows, mode
+// decides what happens to the extra digits; the returned bool reports
+// whether any precision was actually dropped.
+func majorToMinor(amount string, exponent int, mode RoundMode) (int64, bool, error) {
 	neg, s := splitSign(amount)
 
 	parts := strings.SplitN(s, ".", 2)
@@ -91,24 +129,45 @@ func majorToMinor(amount string, exponent int) (int64, error) {
 		frac = parts[1]
 	}
 	if whole == "" || !isDigits(whole) {
-		return 0, fmt.Errorf("invalid amount %q", amount)
+		return 0, false, fmt.Errorf("invalid amount %q", amount)
 	}
 	if frac != "" && !isDigits(frac) {
-		return 0, fmt.Errorf("invalid amount %q", amount)
+		return 0, false, fmt.Errorf("invalid amount %q", amount)
 	}
+
+	kept, extra := frac, ""
 	if len(frac) > exponent {
-		return 0, fmt.Errorf("amount %q has more fractional digits than the currency allows (%d)", amount, exponent)
+		kept, extra = frac[:exponent], frac[exponent:]
 	}
-	frac += strings.Repeat("0", exponent-len(frac))
+
+	roundUp := false
+	if extra != "" {
+		switch mode {
+		case RoundError:
+			return 0, false, fmt.Errorf("amount %q has more fractional digits than the currency allows (%d); pass -round to allow a lossy conversion", amount, exponent)
+		case RoundDown:
+			// nothing to do, the extra digits are simply dropped
+		case RoundUp:
+			roundUp = !isAllZero(extra)
+		case RoundHalfUp:
+			roundUp = extra[0] >= '5'
+		default:
+			return 0, false, fmt.Errorf("unknown rounding mode %q", mode)
+		}
+	}
+	kept += strings.Repeat("0", exponent-len(kept))
 
 	var value int64
-	for _, r := range whole + frac {
+	for _, r := range whole + kept {
 		value = value*10 + int64(r-'0')
+	}
+	if roundUp {
+		value++
 	}
 	if neg {
 		value = -value
 	}
-	return value, nil
+	return value, extra != "", nil
 }
 
 // minorToMajor converts an integer number of minor units back into a

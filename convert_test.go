@@ -22,7 +22,7 @@ func TestMajorToMinor(t *testing.T) {
 	}
 
 	for _, c := range cases {
-		got, err := majorToMinor(c.amount, c.exponent)
+		got, _, err := majorToMinor(c.amount, c.exponent, RoundError)
 		if c.wantErr {
 			if err == nil {
 				t.Errorf("majorToMinor(%q, %d) = %d, want error", c.amount, c.exponent, got)
@@ -36,6 +36,59 @@ func TestMajorToMinor(t *testing.T) {
 		if got != c.want {
 			t.Errorf("majorToMinor(%q, %d) = %d, want %d", c.amount, c.exponent, got, c.want)
 		}
+	}
+}
+
+func TestMajorToMinorRounding(t *testing.T) {
+	cases := []struct {
+		amount      string
+		exponent    int
+		mode        RoundMode
+		want        int64
+		wantRounded bool
+	}{
+		{"1.234", 2, RoundDown, 123, true},
+		{"-1.234", 2, RoundDown, -123, true},
+		{"1.230", 2, RoundDown, 123, false}, // extra digit is zero, but still present
+		{"1.235", 2, RoundUp, 124, true},
+		{"1.230", 2, RoundUp, 123, true},    // extra digits are all zero: no bump needed
+		{"1.20", 2, RoundUp, 120, false},    // no extra digits at all
+		{"-1.231", 2, RoundUp, -124, true},
+		{"1.005", 2, RoundHalfUp, 101, true},
+		{"1.004", 2, RoundHalfUp, 100, true},
+		{"-1.005", 2, RoundHalfUp, -101, true},
+		{"1.005", 2, RoundError, 0, false}, // no digits dropped; caller should have gotten an error
+	}
+
+	for _, c := range cases {
+		got, rounded, err := majorToMinor(c.amount, c.exponent, c.mode)
+		if c.mode == RoundError {
+			if err == nil {
+				t.Errorf("majorToMinor(%q, %d, %q) = %d, want error", c.amount, c.exponent, c.mode, got)
+			}
+			continue
+		}
+		if err != nil {
+			t.Errorf("majorToMinor(%q, %d, %q) unexpected error: %v", c.amount, c.exponent, c.mode, err)
+			continue
+		}
+		if got != c.want {
+			t.Errorf("majorToMinor(%q, %d, %q) = %d, want %d", c.amount, c.exponent, c.mode, got, c.want)
+		}
+		if rounded != c.wantRounded {
+			t.Errorf("majorToMinor(%q, %d, %q) rounded = %v, want %v", c.amount, c.exponent, c.mode, rounded, c.wantRounded)
+		}
+	}
+}
+
+func TestParseRoundMode(t *testing.T) {
+	for _, m := range []string{"error", "down", "up", "half-up"} {
+		if _, err := parseRoundMode(m); err != nil {
+			t.Errorf("parseRoundMode(%q) unexpected error: %v", m, err)
+		}
+	}
+	if _, err := parseRoundMode("nearest"); err == nil {
+		t.Error("parseRoundMode(\"nearest\") expected error, got nil")
 	}
 }
 

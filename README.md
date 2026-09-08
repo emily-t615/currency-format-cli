@@ -43,6 +43,29 @@ $ go run . -amount 1.500 -currency BHD -from major
 1.500 BHD (major) -> 1500 (minor)
 ```
 
+### Rounding
+
+By default an amount with more fractional digits than the currency allows
+(e.g. `1.234` for USD) is rejected:
+
+```
+$ go run . -amount 1.234 -currency USD -from major
+error: amount "1.234" has more fractional digits than the currency allows (2); pass -round to allow a lossy conversion
+```
+
+Pass `-round` to allow the conversion anyway. The modes are `down`
+(truncate), `up` (round away from zero if any dropped digit is non-zero),
+and `half-up` (round to the nearest minor unit, ties away from zero):
+
+```
+$ go run . -amount 1.235 -currency USD -from major -round half-up
+1.235 USD (major) -> 124 (minor) (rounded)
+```
+
+`-round` only affects `major` to `minor` conversions; going the other way
+never loses precision. With `--json`, a lossy conversion adds `"rounded":
+true` to the result.
+
 ### JSON output
 
 Pass `--json` to get machine-readable output instead, for piping into other
@@ -90,9 +113,12 @@ failed. With `--json`, batch mode emits one compact JSON object per line
 - `-batch` read amounts from stdin, one per line, instead of using `-amount`
 - `--json` emit JSON instead of a human-readable line (indented for a single
   amount, newline-delimited for `-batch`)
+- `-round` how to handle a `major` amount with too many fractional digits:
+  `error` (default), `down`, `up`, or `half-up`
 
 An amount with more fractional digits than the currency allows (e.g.
-`1.234` for USD) is rejected rather than silently rounded.
+`1.234` for USD) is rejected rather than silently rounded, unless `-round`
+says otherwise.
 
 ## Building
 
