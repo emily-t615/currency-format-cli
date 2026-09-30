@@ -102,6 +102,26 @@ than aborting the whole batch; the process exits non-zero if any line
 failed. With `--json`, batch mode emits one compact JSON object per line
 (newline-delimited JSON) instead of an indented single object.
 
+### CSV files
+
+Pass `-csv` to convert one column of a CSV file. The file is read from stdin
+and written to stdout with a `converted` value appended to every row.
+`-column` picks the amount column by header name (with `-header`) or by
+1-based number:
+
+```
+$ printf 'id,amount\na,1234.56\nb,0.07\n' | go run . -csv -header -column amount -currency USD -from major
+id,amount,converted
+a,1234.56,123456
+b,0.07,7
+```
+
+If the currency varies by row, use `-currency-column` instead of
+`-currency`; each row's exponent is looked up from its own code. A row that
+cannot be converted is reported to stderr by row number and written with an
+empty `converted` cell, so the output always has one row per input row. The
+exit status is non-zero if any row failed. `--json` does not apply to `-csv`.
+
 ## Flags
 
 - `-amount` the value to convert (ignored, and must be omitted, when
@@ -113,6 +133,10 @@ failed. With `--json`, batch mode emits one compact JSON object per line
 - `-batch` read amounts from stdin, one per line, instead of using `-amount`
 - `--json` emit JSON instead of a human-readable line (indented for a single
   amount, newline-delimited for `-batch`)
+- `-csv` convert a column of a CSV file read from stdin (see above)
+- `-column` with `-csv`, the amount column: header name or 1-based number
+- `-currency-column` with `-csv`, a column of per-row currency codes
+- `-header` with `-csv`, the first row is a header row
 - `-round` how to handle a `major` amount with too many fractional digits:
   `error` (default), `down`, `up`, or `half-up`
 

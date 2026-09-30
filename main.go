@@ -26,19 +26,59 @@ func main() {
 	jsonOut := flag.Bool("json", false, "emit JSON instead of a human-readable line")
 	batch := flag.Bool("batch", false, "read amounts from stdin, one per line, instead of -amount")
 	round := flag.String("round", string(RoundError), "how to handle amounts with too many fractional digits: error, down, up, or half-up")
+	csvMode := flag.Bool("csv", false, "read a CSV file from stdin and write it to stdout with a converted column appended")
+	column := flag.String("column", "", "with -csv: amount column, as a header name or 1-based number")
+	currencyColumn := flag.String("currency-column", "", "with -csv: column holding each row's currency code, instead of -currency")
+	header := flag.Bool("header", false, "with -csv: the first row is a header row")
 	flag.Parse()
 
-	if *currency == "" || *from == "" || (*from != "major" && *from != "minor") {
+	csvCurrencyOK := *csvMode && *currencyColumn != ""
+	if (*currency == "" && !csvCurrencyOK) || *from == "" || (*from != "major" && *from != "minor") {
 		fmt.Fprintln(os.Stderr, "usage: currencyfmt -amount <value> -currency <code> -from <major|minor> [--json] [-round <mode>]")
 		fmt.Fprintln(os.Stderr, "       currencyfmt -batch -currency <code> -from <major|minor> [--json] [-round <mode>] < amounts.txt")
+		fmt.Fprintln(os.Stderr, "       currencyfmt -csv -column <name|n> (-currency <code> | -currency-column <name|n>) -from <major|minor> [-header] [-round <mode>] < in.csv > out.csv")
 		os.Exit(2)
 	}
 
-	exp, err := exponentFor(*currency)
+	mode, err := parseRoundMode(*round)
 	if err != nil {
 		fail(err)
 	}
-	mode, err := parseRoundMode(*round)
+
+	if *csvMode {
+		switch {
+		case *batch || *amount != "":
+			fail(fmt.Errorf("-csv cannot be combined with -batch or -amount; rows are read from stdin"))
+		case *jsonOut:
+			fail(fmt.Errorf("-json does not apply to -csv, which writes CSV"))
+		case *column == "":
+			fail(fmt.Errorf("-csv needs -column to say which column holds the amount"))
+		case *currency != "" && *currencyColumn != "":
+			fail(fmt.Errorf("use either -currency or -currency-column, not both"))
+		}
+		if *currency != "" {
+			if _, err := exponentFor(*currency); err != nil {
+				fail(err)
+			}
+		}
+		failures, err := convertCSV(os.Stdin, os.Stdout, os.Stderr, csvOptions{
+			Column:         *column,
+			CurrencyColumn: *currencyColumn,
+			Currency:       *currency,
+			Header:         *header,
+			From:           *from,
+			Mode:           mode,
+		})
+		if err != nil {
+			fail(err)
+		}
+		if failures > 0 {
+			os.Exit(1)
+		}
+		return
+	}
+
+	exp, err := exponentFor(*currency)
 	if err != nil {
 		fail(err)
 	}
